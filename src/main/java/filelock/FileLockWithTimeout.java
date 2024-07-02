@@ -1,5 +1,6 @@
 package filelock;
 
+import util.Logger;
 import java.io.RandomAccessFile;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
@@ -7,39 +8,41 @@ import java.nio.channels.OverlappingFileLockException;
 import java.util.concurrent.TimeUnit;
 
 public class FileLockWithTimeout {
-    private final FileChannel fileChannel;
-    private final RandomAccessFile raf;
+    private FileChannel fileChannel;
+    private RandomAccessFile raf;
     private FileLock lock = null;
+    private final String lockFilePath;
     private final long timeout;
 
-    public FileLockWithTimeout(String lockPath, long timeout, TimeUnit unit) throws Exception {
-        this.raf = new RandomAccessFile(lockPath, "rw");
-        this.fileChannel = raf.getChannel();
+    public FileLockWithTimeout(String baseLockPath, String key, long timeout, TimeUnit unit) {
+        this.lockFilePath = baseLockPath + "/" + key + ".lock";
         this.timeout = TimeUnit.MILLISECONDS.convert(timeout, unit);
     }
 
     public synchronized boolean acquireLock() {
         long startTime = System.currentTimeMillis();
+        initResources();
         while (System.currentTimeMillis() - startTime < timeout) {
             try {
                 lock = fileChannel.tryLock();
                 if (lock != null) {
-                    return true; // 锁成功获取
+                    return true;
                 }
             } catch (OverlappingFileLockException e) {
-                // 文件锁冲突，当前进程的其他线程或文件通道已持有锁
+                Logger.log("Lock already acquired by another thread or process.");
             } catch (Exception e) {
-                System.out.println("Failed to acquire lock: " + e.getMessage());
-                return false;
+                Logger.error("Failed to acquire lock: ", e);
+                break;
             }
-            // 暂停一段时间后再尝试，避免过度消耗CPU
             try {
                 Thread.sleep(100);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                return false;
+                Logger.log("Lock acquisition interrupted.");
+                break;
             }
         }
+        closeResources();
         return false;
     }
 
@@ -47,18 +50,37 @@ public class FileLockWithTimeout {
         try {
             if (lock != null && lock.isValid()) {
                 lock.release();
-                lock = null;
             }
-            raf.close();
-            fileChannel.close();
         } catch (Exception e) {
-            System.out.println("Failed to release lock: " + e.getMessage());
+            Logger.error("Failed to release lock: ", e);
+        } finally {
+            closeResources();
         }
     }
 
-    @Override
-    protected void finalize() throws Throwable {
-        releaseLock();  // 确保在对象被垃圾回收时释放资源
-        super.finalize();
+    private void initResources() {
+        try {
+            if (raf == null || fileChannel == null) {
+                raf = new RandomAccessFile(lockFilePath, "rw");
+                fileChannel = raf.getChannel();
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to initialize lock resources: " + e.getMessage(), e);
+        }
+    }
+
+    private void closeResources() {
+        try {
+            if (fileChannel != null) {
+                fileChannel.close();
+                fileChannel = null;
+            }
+            if (raf != null) {
+                raf.close();
+                raf = null;
+            }
+        } catch (Exception e) {
+            Logger.error("Failed to close lock resources: ", e);
+        }
     }
 }

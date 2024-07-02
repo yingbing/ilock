@@ -1,6 +1,9 @@
 package taskscheduler;
 
 import filelock.FileLockWithTimeout;
+import filelock.FileLockWithTimeout1;
+
+import java.io.IOException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -9,10 +12,11 @@ public class TaskScheduler {
     private final ScheduledExecutorService scheduler;
     private final FileLockWithTimeout lock;
     private final int maxRetries;
-    private final long retryDelay;  // 重试间隔，单位为毫秒
+    private final long retryDelay;
 
     public TaskScheduler(String baseLockPath, String key, long timeout, TimeUnit unit, int maxRetries, long retryDelay) throws Exception {
-        this.lock = new FileLockWithTimeout(baseLockPath, timeout, unit);
+        this.lock = new FileLockWithTimeout(baseLockPath, key, timeout, unit);
+//        this.lock = new FileLockWithTimeout1(baseLockPath, key, timeout, unit, 2000, 4000);
         this.scheduler = Executors.newScheduledThreadPool(1);
         this.maxRetries = maxRetries;
         this.retryDelay = retryDelay;
